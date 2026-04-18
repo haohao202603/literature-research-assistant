@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生物医药文献调研助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .result-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
+        }
+        .tab-active {
+            border-bottom: 2px solid #3b82f6;
+            color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- 顶部导航 -->
+    <header class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <h1 class="text-xl font-bold text-gray-800">🧬 生物医药文献调研助手</h1>
+                <div class="flex items-center gap-4">
+                    <span class="text-sm text-gray-500">数据源: PubMed + Semantic Scholar</span>
+                    <button onclick="showSettings()" class="text-sm text-blue-600 hover:text-blue-800">⚙️ API设置</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 搜索区域 -->
+    <section class="bg-white border-b">
+        <div class="max-w-7xl mx-auto px-4 py-6">
+            <!-- 搜索框 -->
+            <div class="flex gap-3 mb-4">
+                <div class="flex-1 relative">
+                    <input type="text" id="searchInput" placeholder="输入靶点名称、疾病或关键词，如: PD-1, IL-17, 肿瘤免疫..."
+                           class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base">
+                    <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">Enter 搜索</span>
+                </div>
+                <button onclick="performSearch()" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition">
+                    搜索
+                </button>
+                <button onclick="clearSearch()" class="px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
+                    清空
+                </button>
+            </div>
+
+            <!-- 搜索选项 -->
+            <div class="flex flex-wrap gap-4 items-center text-sm">
+                <div class="flex items-center gap-2">
+                    <label class="text-gray-600">数据源:</label>
+                    <select id="dataSource" class="border rounded px-2 py-1">
+                        <option value="pubmed">PubMed</option>
+                        <option value="semantic">Semantic Scholar</option>
+                        <option value="both">两者结合</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <label class="text-gray-600">年份:</label>
+                    <select id="yearFilter" class="border rounded px-2 py-1">
+                        <option value="">不限</option>
+                        <option value="2024">2024</option>
+                        <option value="2023">2023</option>
+                        <option value="2022">2022</option>
+                        <option value="2021">2021</option>
+                        <option value="2020">2020</option>
+                        <option value="2019">2019</option>
+                        <option value="2015">2015</option>
+                        <option value="2010">2010</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <label class="text-gray-600">类型:</label>
+                    <select id="articleType" class="border rounded px-2 py-1">
+                        <option value="">不限</option>
+                        <option value="review">综述</option>
+                        <option value="clinical">临床试验</option>
+                        <option value="meta-analysis">Meta分析</option>
+                    </select>
+                </div>
+                <div class="flex-1"></div>
+                <span id="resultCount" class="text-gray-500"></span>
+            </div>
+        </div>
+    </section>
+
+    <!-- 主内容区 -->
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- 左侧：搜索结果列表 -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-xl shadow-sm border">
+                    <div class="p-4 border-b flex items-center justify-between">
+                        <h2 class="font-semibold text-gray-800">搜索结果</h2>
+                        <div class="flex gap-2">
+                            <button onclick="selectAll()" class="text-xs text-blue-600 hover:text-blue-800">全选</button>
+                            <button onclick="batchSummarize()" class="text-xs text-green-600 hover:text-green-800">批量摘要</button>
+                            <button onclick="batchTranslate()" class="text-xs text-purple-600 hover:text-purple-800">批量翻译</button>
+                        </div>
+                    </div>
+                    <div id="resultsList" class="divide-y max-h-[600px] overflow-y-auto">
+                        <!-- 搜索结果将在这里 -->
+                        <div class="p-8 text-center text-gray-500">
+                            <p class="text-4xl mb-2">🔍</p>
+                            <p>输入关键词开始搜索文献</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：详情面板 -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-xl shadow-sm border sticky top-6">
+                    <div class="p-4 border-b">
+                        <h2 class="font-semibold text-gray-800">文献详情</h2>
+                    </div>
+                    <div id="detailPanel" class="p-4 max-h-[600px] overflow-y-auto">
+                        <div class="text-center text-gray-500 py-8">
+                            <p class="text-4xl mb-2">📄</p>
+                            <p>点击左侧文献查看详情</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 设置弹窗 -->
+    <div id="settingsModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-2xl">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold">API 设置</h3>
+                <button onclick="hideSettings()" class="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">MiniMax API Key</label>
+                    <input type="password" id="miniMaxKey" placeholder="sk-xxx..." class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">MiniMax Group ID</label>
+                    <input type="text" id="miniMaxGroupId" placeholder="Group ID" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="text-xs text-gray-500 bg-gray-50 p-3 rounded">
+                    <p>API Key 将仅保存在本地浏览器中，不会上传到任何服务器。</p>
+                </div>
+                <button onclick="saveSettings()" class="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    保存设置
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量处理进度 -->
+    <div id="batchProgress" class="fixed bottom-4 right-4 bg-white rounded-xl shadow-2xl border p-4 w-80 hidden">
+        <div class="flex items-center gap-3 mb-3">
+            <div class="loading-spinner"></div>
+            <span id="progressText" class="font-medium">处理中...</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2">
+            <div id="progressBar" class="bg-blue-600 h-2 rounded-full transition-all" style="width: 0%"></div>
+        </div>
+        <p id="progressDetail" class="text-sm text-gray-500 mt-2"></p>
+    </div>
+
+    <script>
+        // 全局状态
+        let searchResults = [];
+        let selectedPapers = new Set();
+        let currentPaper = null;
+        let miniMaxKey = localStorage.getItem('minimax_key') || '';
+        let miniMaxGroupId = localStorage.getItem('minimax_groupid') || '';
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            // 回车搜索
+            document.getElementById('searchInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') performSearch();
+            });
+
+            // 恢复 API 设置
+            if (miniMaxKey) document.getElementById('miniMaxKey').value = miniMaxKey;
+            if (miniMaxGroupId) document.getElementById('miniMaxGroupId').value = miniMaxGroupId;
+        });
+
+        // 设置弹窗
+        function showSettings() {
+            document.getElementById('settingsModal').classList.remove('hidden');
+            document.getElementById('settingsModal').classList.add('flex');
+        }
+
+        function hideSettings() {
+            document.getElementById('settingsModal').classList.add('hidden');
+            document.getElementById('settingsModal').classList.remove('flex');
+        }
+
+        function saveSettings() {
+            miniMaxKey = document.getElementById('miniMaxKey').value.trim();
+            miniMaxGroupId = document.getElementById('miniMaxGroupId').value.trim();
+            localStorage.setItem('minimax_key', miniMaxKey);
+            localStorage.setItem('minimax_groupid', miniMaxGroupId);
+            hideSettings();
+            alert('设置已保存！');
+        }
+
+        // 搜索功能
+        async function performSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) { alert('请输入搜索关键词'); return; }
+
+            const source = document.getElementById('dataSource').value;
+            const year = document.getElementById('yearFilter').value;
+            const articleType = document.getElementById('articleType').value;
+
+            showLoading('正在搜索文献...');
+            searchResults = [];
+
+            try {
+                if (source === 'pubmed' || source === 'both') {
+                    const pubmedResults = await searchPubMed(query, year, articleType);
+                    searchResults.push(...pubmedResults);
+                }
+                if (source === 'semantic' || source === 'both') {
+                    const semanticResults = await searchSemantic(query, year, articleType);
+                    if (source === 'both') {
+                        // 去重合并
+                        const ids = new Set(searchResults.map(r => r.id));
+                        semanticResults.forEach(r => { if (!ids.has(r.id)) searchResults.push(r); });
+                    } else {
+                        searchResults = semanticResults;
+                    }
+                }
+
+                renderResults();
+                document.getElementById('resultCount').textContent = `共 ${searchResults.length} 条结果`;
+            } catch (err) {
+                console.error(err);
+                alert('搜索失败: ' + err.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // PubMed 搜索
+        async function searchPubMed(query, year, articleType) {
+            // E-utilities API
+            const params = new URLSearchParams({
+                db: 'pubmed',
+                term: query,
+                retmax: 50,
+                sort: 'relevance'
+            });
+
+            // 搜索
+            const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?${params}`;
+            const searchRes = await fetch(searchUrl);
+            const searchXml = await searchRes.text();
+            const ids = [...searchXml.matchAll(/<Id>(\d+)<\/Id>/g)].map(m => m[1]);
+
+            if (ids.length === 0) return [];
+
+            // 获取详情
+            const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids.join(',')}&retmode=json`;
+            const fetchRes = await fetch(fetchUrl);
+            const data = await fetchRes.json();
+
+            return Object.values(data.result || {}).filter(r => r.uid).map(r => ({
+                id: r.uid,
+                title: r.title || '无标题',
+                authors: r.authors?.map(a => a.name) || [],
+                journal: r.fulljournalname || r.source || '',
+                year: r.pubdate?.match(/\d{4}/)?.[0] || '',
+                abstract: r.abstract || '',
+                doi: r.elocationid?.replace('doi: ', '') || '',
+                url: `https://pubmed.ncbi.nlm.nih.gov/${r.uid}/`,
+                type: 'pubmed',
+                citedBy: 0
+            }));
+        }
+
+        // Semantic Scholar 搜索
+        async function searchSemantic(query, year, articleType) {
+            let url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=50&fields=title,authors,year,abstract,venue,journal,externalIds,openAccessPdf,citationCount,fieldsOfStudy`;
+
+            const res = await fetch(url);
+            const data = await res.json();
+
+            return (data.papers || []).map(p => ({
+                id: p.paperId,
+                title: p.title || '无标题',
+                authors: p.authors?.map(a => a.name) || [],
+                journal: p.journal || p.venue || '',
+                year: p.year || '',
+                abstract: p.abstract || '',
+                doi: p.externalIds?.DOI || '',
+                url: `https://www.semanticscholar.org/paper/${p.paperId}`,
+                pdfUrl: p.openAccessPdf?.url || '',
+                type: 'semantic',
+                citedBy: p.citationCount || 0
+            }));
+        }
+
+        // 渲染结果列表
+        function renderResults() {
+            const container = document.getElementById('resultsList');
+            if (searchResults.length === 0) {
+                container.innerHTML = '<div class="p-8 text-center text-gray-500"><p class="text-4xl mb-2">😕</p><p>未找到相关文献</p></div>';
+                return;
+            }
+
+            container.innerHTML = searchResults.map((paper, idx) => `
+                <div class="result-card p-4 hover:bg-gray-50 cursor-pointer transition-all ${selectedPapers.has(paper.id) ? 'bg-blue-50' : ''}" onclick="selectPaper(${idx})">
+                    <div class="flex items-start gap-3">
+                        <input type="checkbox" ${selectedPapers.has(paper.id) ? 'checked' : ''}
+                               onclick="event.stopPropagation(); toggleSelect('${paper.id}')"
+                               class="mt-1 w-4 h-4 text-blue-600 rounded">
+                        <div class="flex-1 min-w-0">
+                            <h3 class="font-medium text-gray-800 line-clamp-2 mb-1">${paper.title}</h3>
+                            <p class="text-sm text-gray-600 mb-1">${paper.authors.slice(0, 3).join(', ')}${paper.authors.length > 3 ? '...' : ''}</p>
+                            <div class="flex flex-wrap gap-2 items-center text-xs text-gray-500">
+                                <span>${paper.journal || '未知期刊'}</span>
+                                <span>•</span>
+                                <span>${paper.year || '未知年份'}</span>
+                                <span>•</span>
+                                <span>被引 ${paper.citedBy || 0}</span>
+                                ${paper.pdfUrl ? '<span class="text-green-600">📄 PDF</span>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 选择文献
+        function selectPaper(idx) {
+            currentPaper = searchResults[idx];
+            renderDetail();
+        }
+
+        // 渲染详情
+        function renderDetail() {
+            const container = document.getElementById('detailPanel');
+            if (!currentPaper) return;
+
+            container.innerHTML = `
+                <div class="space-y-4">
+                    <h3 class="font-semibold text-gray-800 leading-tight">${currentPaper.title}</h3>
+                    <div class="text-sm text-gray-600">
+                        <p><strong>作者:</strong> ${currentPaper.authors.join(', ') || '未知'}</p>
+                        <p><strong>期刊:</strong> ${currentPaper.journal || '未知'}</p>
+                        <p><strong>年份:</strong> ${currentPaper.year || '未知'}</p>
+                        <p><strong>被引:</strong> ${currentPaper.citedBy || 0}</p>
+                        ${currentPaper.doi ? `<p><strong>DOI:</strong> ${currentPaper.doi}</p>` : ''}
+                    </div>
+                    <div class="flex gap-2">
+                        <a href="${currentPaper.url}" target="_blank" class="flex-1 text-center py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
+                            查看原文
+                        </a>
+                        ${currentPaper.pdfUrl ? `
+                            <a href="${currentPaper.pdfUrl}" target="_blank" class="flex-1 text-center py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
+                                下载PDF
+                            </a>
+                        ` : `
+                            <button onclick="searchPDF()" class="flex-1 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 text-sm">
+                                搜索PDF
+                            </button>
+                        `}
+                    </div>
+
+                    <div class="border-t pt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="font-medium text-gray-800">摘要</h4>
+                            <button onclick="summarizeAbstract()" class="text-xs text-blue-600 hover:text-blue-800">✨ AI摘要</button>
+                        </div>
+                        <div id="abstractContent" class="text-sm text-gray-600 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                            ${currentPaper.abstract || '暂无摘要'}
+                        </div>
+                    </div>
+
+                    <div class="border-t pt-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="font-medium text-gray-800">中文翻译</h4>
+                            <button onclick="translateAbstract()" class="text-xs text-purple-600 hover:text-purple-800">✨ AI翻译</button>
+                        </div>
+                        <div id="translatedContent" class="text-sm text-gray-600 whitespace-pre-wrap">
+                            <span class="text-gray-400">点击右侧按钮获取翻译</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 摘要分析
+        async function summarizeAbstract() {
+            if (!currentPaper?.abstract) { alert('暂无摘要'); return; }
+            if (!miniMaxKey) { alert('请先设置 MiniMax API Key'); showSettings(); return; }
+
+            const btn = event.target;
+            btn.textContent = '生成中...';
+            btn.disabled = true;
+
+            try {
+                const summary = await callMiniMax(`请帮我总结以下学术论文摘要的要点，用中文回复：\n\n${currentPaper.abstract}`);
+                document.getElementById('abstractContent').innerHTML = `<strong>AI摘要:</strong>\n${summary}`;
+            } catch (err) {
+                alert('生成失败: ' + err.message);
+            } finally {
+                btn.textContent = '✨ AI摘要';
+                btn.disabled = false;
+            }
+        }
+
+        // 翻译功能
+        async function translateAbstract() {
+            if (!currentPaper?.abstract) { alert('暂无摘要'); return; }
+            if (!miniMaxKey) { alert('请先设置 MiniMax API Key'); showSettings(); return; }
+
+            const btn = event.target;
+            btn.textContent = '翻译中...';
+            btn.disabled = true;
+
+            try {
+                const translation = await callMiniMax(`请将以下学术摘要翻译成中文，保持专业术语的准确性：\n\n${currentPaper.abstract}`);
+                document.getElementById('translatedContent').textContent = translation;
+            } catch (err) {
+                alert('翻译失败: ' + err.message);
+            } finally {
+                btn.textContent = '✨ AI翻译';
+                btn.disabled = false;
+            }
+        }
+
+        // 批量选择
+        function toggleSelect(id) {
+            if (selectedPapers.has(id)) selectedPapers.delete(id);
+            else selectedPapers.add(id);
+            renderResults();
+        }
+
+        function selectAll() {
+            if (selectedPapers.size === searchResults.length) {
+                selectedPapers.clear();
+            } else {
+                searchResults.forEach(p => selectedPapers.add(p.id));
+            }
+            renderResults();
+        }
+
+        // 批量处理
+        async function batchSummarize() {
+            const selected = searchResults.filter(p => selectedPapers.has(p.id));
+            if (selected.length === 0) { alert('请先选择文献'); return; }
+            await batchProcess(selected, '正在生成摘要...', async (paper) => {
+                const summary = await callMiniMax(`总结摘要: ${paper.abstract}`);
+                return { ...paper, summary };
+            });
+        }
+
+        async function batchTranslate() {
+            const selected = searchResults.filter(p => selectedPapers.has(p.id));
+            if (selected.length === 0) { alert('请先选择文献'); return; }
+            await batchProcess(selected, '正在翻译...', async (paper) => {
+                const translation = await callMiniMax(`翻译成中文: ${paper.abstract}`);
+                return { ...paper, translation };
+            });
+        }
+
+        async function batchProcess(items, text, fn) {
+            const progress = document.getElementById('batchProgress');
+            progress.classList.remove('hidden');
+            const bar = document.getElementById('progressBar');
+            const detail = document.getElementById('progressDetail');
+
+            for (let i = 0; i < items.length; i++) {
+                bar.style.width = `${((i + 1) / items.length) * 100}%`;
+                detail.textContent = `${i + 1}/${items.length}`;
+                try {
+                    await fn(items[i]);
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+
+            setTimeout(() => progress.classList.add('hidden'), 1000);
+            alert('批量处理完成！');
+        }
+
+        // MiniMax API 调用
+        async function callMiniMax(prompt) {
+            if (!miniMaxKey || !miniMaxGroupId) {
+                throw new Error('请先配置 MiniMax API Key 和 Group ID');
+            }
+
+            const res = await fetch('https://api.minimax.chat/v1/text/chatcompletion_pro?GroupId=' + miniMaxGroupId, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + miniMaxKey
+                },
+                body: JSON.stringify({
+                    model: 'abab6-chat',
+                    messages: [{ role: 'user', content: prompt }],
+                    temperature: 0.7
+                })
+            });
+
+            if (!res.ok) throw new Error(`API错误: ${res.status}`);
+            const data = await res.json();
+            return data.choices?.[0]?.message?.content || '无回复';
+        }
+
+        // 搜索PDF
+        function searchPDF() {
+            if (!currentPaper) return;
+            const query = encodeURIComponent(currentPaper.title + ' pdf');
+            window.open(`https://scholar.google.com/scholar?q=${query}`, '_blank');
+        }
+
+        // 清空搜索
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            searchResults = [];
+            selectedPapers.clear();
+            currentPaper = null;
+            document.getElementById('resultCount').textContent = '';
+            document.getElementById('resultsList').innerHTML = '<div class="p-8 text-center text-gray-500"><p class="text-4xl mb-2">🔍</p><p>输入关键词开始搜索文献</p></div>';
+            document.getElementById('detailPanel').innerHTML = '<div class="text-center text-gray-500 py-8"><p class="text-4xl mb-2">📄</p><p>点击左侧文献查看详情</p></div>';
+        }
+
+        // 加载动画
+        function showLoading(text) {
+            const container = document.getElementById('resultsList');
+            container.innerHTML = `<div class="p-8 text-center">
+                <div class="loading-spinner mx-auto mb-4"></div>
+                <p class="text-gray-500">${text}</p>
+            </div>`;
+        }
+
+        function hideLoading() {
+            // 加载动画由 renderResults 替代
+        }
+    </script>
+</body>
+</html>
